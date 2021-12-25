@@ -1,6 +1,6 @@
 import requests
 from requests.models import get_auth_from_url
-from url import LOGIN_URL, SERIES_DATA, EPISODE_DATA, MOVIE_DETAIL
+from url import LOGIN_URL, SERIES_DATA, EPISODE_DATA, MOVIE_DETAIL, USER_DATA
 import pathlib
 import sys
 import os
@@ -25,19 +25,32 @@ class Namava:
         self.movie_url = movie_url
         self.season = season
         self.episode = episode
-        self.backslash = chr(92)
 
     def login(self, username: str, password: str) -> str:
         """
         return token
         """
+        print("Logging in...")
         request = requests.post(LOGIN_URL, data={"UserName": username, "Password": password}).json()
 
         if request["succeeded"]:
+            print("Login successful!")
             self.token = request["result"]
         
         else:
             raise LoginError("username or password is wrong")
+
+    def has_subscription(self) -> bool:
+        print("Checking subscription...")
+        user_data = requests.get(USER_DATA, headers=self.create_header()).json()["result"]["subscription"]
+        #if user_data["validFromDate"]
+        if user_data["validFromDate"] != None and user_data["validToDate"] != None:
+            print("Subscription found")
+            return True
+        return False
+        
+
+
 
     def create_header(self) -> dict:
         return {
@@ -53,23 +66,27 @@ class Namava:
         movie_url example: https://www.namava.ir/series/115791-%D8%A8%D8%A7%D8%B2%DB%8C_%D9%85%D8%B1%DA%A9%D8%A8
         serie_id example: 115791
         """
+        print("Getting season id...")
         serie_id = self.get_movie_id()
 
         seasons_data = requests.get(SERIES_DATA.format(serie_id)).json()["result"]["seasons"]
 
         for season_data in seasons_data:
             if season_data["seasonOrderId"] == str(self.season):
+                print(f"Season id: {season_data['seasonId']}")
                 return season_data["seasonId"]
         
         raise FindEpisodeError("There is no season or episode with these specifications.")
 
     def get_episode_id(self, id: int) -> int:
+        print("Getting episode id...")
         episodes_id = requests.get(EPISODE_DATA.format(id), headers=self.create_header()).json()["result"]
-
+        print(f"Episode id: {episodes_id}")
         return episodes_id[self.episode - 1]["mediaId"]
         
 
     def get_movie_qualities_urls(self, id: int) -> str:
+        print("Getting movie qualities urls")
         movie_detail = requests.get(MOVIE_DETAIL.format(id), headers=self.create_header()).json()
 
         self.movie_name = self.get_latin_name(movie_detail)
@@ -80,18 +97,21 @@ class Namava:
 
         self.qualities = self.get_qualities(qualities_urls)
 
+        print("Done")
+
         return qualities_urls
 
     def get_qualities(self, qualities_urls: str) -> list:
         """
         return qualities
         """
+        print("Getting qualities")
         qualities = []
 
         for line in qualities_urls.split("\n"):
             if "RESOLUTION=" in line:
                 qualities.append(line.split("RESOLUTION=")[1].split(",")[0].split("x")[1])
-        
+        print(f"Qualities: {qualities}")
         return qualities
 
     def is_serie(self):
@@ -100,20 +120,24 @@ class Namava:
         return False
 
     def get_latin_name(self, movie_detail) -> str:
+        print("Getting movie name...")
         movie_attribute = movie_detail["PostTypeAttrValueModels"]
         
         for attr in movie_attribute:
             if attr["Key"] == "movie-latin-name":
+                print(f"Movie name: {attr['Value']}")
                 return attr["Value"]
 
     def get_url_by_quality(self, qualities_urls: str, quality: str) -> str:
         """
         return url
         """
+        print("Getting movie url by quality")
         qualities_urls = qualities_urls.split("\n")
 
         for i, url in enumerate(qualities_urls):
             if quality in url:
+                print(f"Found {quality} url")
                 return qualities_urls[i + 1]
 
         raise FindEpisodeError("There is no quality or episode with these specifications.")
@@ -122,6 +146,7 @@ class Namava:
         """
         return movie parts
         """
+        print("Getting movie parts")
         request = requests.get(movie_url).text
 
         movie_parts = []
@@ -133,13 +158,9 @@ class Namava:
         encryption_url = movie_parts[0].split('URI="')[1].split('"')[0]
         movie_parts = movie_parts[1:]
 
-        return encryption_url, movie_parts
+        print("Getting movie parts done")
 
-    def create_folder(self, folder_name) -> None:
-        """
-        create Folder by folder_name
-        """
-        pathlib.Path(folder_name).mkdir(parents=True, exist_ok=True)
+        return encryption_url, movie_parts
 
     def download_file(self, url: str, file_path: str) -> None:
         """
@@ -148,21 +169,28 @@ class Namava:
         print(f"Downloading {file_path}")
         with open(file_path, "wb") as file:
             file.write(requests.get(url).content)
+        print(f"Downloaded {file_path}")
 
     def create_parts_list_file(self, movie_parts: list):
+        print("Creating parts list file")
         with open("movie_list.txt", "w") as file:
             for i in range(len(movie_parts)):
                 file.write(f"file 'decrypted-{i+1}.ts'" + "\n")
+        print("Done")
 
     def combine_video_files(self) -> None:
+        print("Combining video files...")
         command = f'cd "{pathlib.Path(__file__).parent.resolve()}" && ffmpeg -f concat -safe 0 -i movie_list.txt -c copy "{self.movie_name.replace(" ", "")}.mp4"'
         os.system(command)
+        print("Done")
 
     def delete_all_files(self, formats: list) -> None:
+        print("Deleting files...")
         for file in os.listdir():
             for format in formats:
                 if file.endswith(format):
                     os.remove(file)
+        print("Done! Enjoy your movie!")
 
 
 class Encryption:
@@ -180,11 +208,14 @@ class Encryption:
         """
         return decrypted file name
         """
+        print(f"Decrypting {encrypted_file_name}...")
         cipher = AES.new(self.encryption_file_key, AES.MODE_CBC, iv=self.ivof(int(encrypted_file_name.split("-")[1])))
         encrypted_file = open(encrypted_file_name, 'rb').read()
         p = cipher.decrypt(encrypted_file)
         with open(f"decrypted-{encrypted_file_name.split('-')[1]}.ts", 'wb') as file:
             file.write(p)
+        
+        print(f"Decrypted {encrypted_file_name}")
 
 
 if __name__ == "__main__":
@@ -202,31 +233,36 @@ if __name__ == "__main__":
     namava = Namava(movie_url=args.movie_url, season=args.season, episode=args.episode)
     namava.login(username=USERNAME, password=PASSWORD)
 
-    if namava.is_serie():
-        episode_id = namava.get_episode_id(namava.get_season_id())
+    if namava.has_subscription():
 
-        qualities_urls = namava.get_movie_qualities_urls(episode_id)
+        if namava.is_serie():
+            episode_id = namava.get_episode_id(namava.get_season_id())
+
+            qualities_urls = namava.get_movie_qualities_urls(episode_id)
+
+        else:
+            qualities_urls = namava.get_movie_qualities_urls(namava.get_movie_id())
+
+        namava.delete_all_files([".ts", ".txt", ".mp4", ".key"])
+
+        url = namava.get_url_by_quality(qualities_urls, args.quality)
+        encryption_url, movie_parts = namava.get_movie_parts(url)
+
+        namava.download_file(encryption_url, "encryption.key")
+
+        for part in movie_parts:
+            namava.download_file(part, part.split("/")[-1].split("?")[0])
+        
+        namava.create_parts_list_file(movie_parts)
+
+        encryption = Encryption("encryption.key")
+
+        for i, part in enumerate(movie_parts):
+            encryption.decrypt(part.split("/")[-1].split("?")[0])
+
+        namava.combine_video_files()
+
+        namava.delete_all_files([".ts", ".txt", ".key"])
 
     else:
-        qualities_urls = namava.get_movie_qualities_urls(namava.get_movie_id())
-
-    namava.delete_all_files([".ts", ".txt", ".mp4", ".key"])
-
-    url = namava.get_url_by_quality(qualities_urls, args.quality)
-    encryption_url, movie_parts = namava.get_movie_parts(url)
-
-    namava.download_file(encryption_url, "encryption.key")
-
-    for part in movie_parts:
-        namava.download_file(part, part.split("/")[-1].split("?")[0])
-    
-    namava.create_parts_list_file(movie_parts)
-
-    encryption = Encryption("encryption.key")
-
-    for i, part in enumerate(movie_parts):
-        encryption.decrypt(part.split("/")[-1].split("?")[0])
-
-    namava.combine_video_files()
-
-    namava.delete_all_files([".ts", ".txt", ".key"])
+        print("You don't have subscription!")
