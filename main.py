@@ -7,6 +7,7 @@ import os
 import argparse
 from Crypto.Cipher import AES
 from config import USERNAME, PASSWORD
+import concurrent.futures
 
 os.chdir(pathlib.Path(__file__).parent.resolve())
 
@@ -15,6 +16,10 @@ class LoginError(Exception):
         super().__init__(message)
 
 class FindEpisodeError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+    
+class SubscriptionError(Exception):
     def __init__(self, message):
         super().__init__(message)
 
@@ -171,6 +176,14 @@ class Namava:
             file.write(requests.get(url).content)
         print(f"Downloaded {file_path}")
 
+    def thread_download(self, urls: list, files_paths: list) -> None:
+        """
+        thread download file from url and save it in file_name
+        """
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            for url in urls:
+                executor.submit(self.download_file, url, files_paths[urls.index(url)])
+
     def create_parts_list_file(self, movie_parts: list):
         print("Creating parts list file")
         with open("movie_list.txt", "w") as file:
@@ -250,8 +263,7 @@ if __name__ == "__main__":
 
         namava.download_file(encryption_url, "encryption.key")
 
-        for part in movie_parts:
-            namava.download_file(part, part.split("/")[-1].split("?")[0])
+        namava.thread_download(movie_parts, [part.split("/")[-1].split("?")[0] for part in movie_parts])
         
         namava.create_parts_list_file(movie_parts)
 
@@ -265,4 +277,4 @@ if __name__ == "__main__":
         namava.delete_all_files([".ts", ".txt", ".key"])
 
     else:
-        print("You don't have subscription!")
+        raise SubscriptionError("You don't have subscription!")
