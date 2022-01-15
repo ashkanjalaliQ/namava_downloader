@@ -36,7 +36,7 @@ class Namava:
         return token
         """
         print("Logging in...")
-        request = requests.post(LOGIN_URL, data={"UserName": username, "Password": password}).json()
+        request = requests.post(LOGIN_URL, data={"UserName": username, "Password": password}, headers=self.create_header()).json()
 
         if request["succeeded"]:
             print("Login successful!")
@@ -59,8 +59,8 @@ class Namava:
 
     def create_header(self) -> dict:
         return {
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.98 Safari/537.36",
-            "cookie": 'guest_token=' + self.token + '; anonymous_login=true; rb_guest_token=' + self.token + '; rb_anonymous_login=true; auth_v2=' + self.token + '; auth_token=; webengage=true; notification=true; dv-v3={"g":"desktop","platform":null}; _gid=GA1.2.1573384437.1640363012; _clck=1f4u8if|1|exj|0; profileId=13397249; content_viewed=17753; _ga_TLHYT3BK0M=GS1.1.1640376375.10.1.1640379177.0; _ga=GA1.2.884584504.1639002317; _clsk=pp9yw6|1640379178991|21|0|www.clarity.ms/eus2/collect;'
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36",
+            "cookie": 'guest_token=' + self.token + '; rb_guest_token=9FA261B03832154D68EBDA506D8B47EF2C48F36D2ADF074BF438D0FB590E94AD2486B6745A50669C3A77BE0CE662AED06C7E0C28A55FE511E73F47384AEB07D6CEAFDE42191D6D0730A7BB8D9B357581D26FD218AB25628AEA1596736CE1829B754E18BC0D04DBA1188FA568492A584C75B83DBC875C26F48237D807F7CB6F921B6D3F5DA914FBE4ED9D6E66864920693FDA3EE11C3A1CAA58BE1126C52BFE0FA75FA174752579D95A90060A4115855115E7C0242A33F324D07F21742933DAD18D12DCA055FAEA1AC4170AE41BA36A75B01DB8DA8CECD484F6071E191A420A9BE41E4155764BE0436E260D5E7027B080; rb_anonymous_login=true; notification=true; _ga_X8RD5LS5K2=GS1.1.1640700353.1.1.1640700379.0; use_legacy_player=false; dv-v3={"g":"desktop","platform":null}; _clck=1f4u8if|1|ey5|0; _gid=GA1.2.570019664.1642267550; content_viewed=128302; _gat_UA-107442781-1=1; last_user_update=1642267828284; profile_update=1642267828284; anonymous_login=true; auth_return=eyJwYXRobmFtZSI6Ii8ifQ; _ga=GA1.2.884584504.1639002317; _clsk=1yms85f|1642267837442|15|0|www.clarity.ms/eus2/collect; auth_v2=95F1C1B7ADB38DEA0F9012F474D8633D05923E11AC3A0442AF931318C0F578AA928B6DB838B8CD0FF2C34C1D9501FE1A3F6028E210FBEE1660BF8CA5E0B1FCB00D7A73547EA067CDC9DBCEEF967AEE240B49CC9E2A97603B5C551DACAA77107D1A04B887DB202F188B16D413B12D330F4912FCED3B075A38B4C886EE9BB69BDF9AE92E1CAD45253EB73615ABEF323906899EB5ED9815D4E318ACD9598CBC5EABB8AA27BAD43FC5EF9C215920689ED24D5AAA183170610CDDACEFF505F22EB56ADFAE73AE79BA31E044F7EC2AE9365E8F4BDC567F5E3BBF4E7CAA8560B2A57C133674EB974DA4B6C9A8922F5D65D1E201; auth_token=; _ga_TLHYT3BK0M=GS1.1.1642267523.57.1.1642267841.0; webengage=true'
         }
 
     def get_movie_id(self) -> str:
@@ -74,7 +74,7 @@ class Namava:
         print("Getting season id...")
         serie_id = self.get_movie_id()
 
-        seasons_data = requests.get(SERIES_DATA.format(serie_id)).json()["result"]["seasons"]
+        seasons_data = requests.get(SERIES_DATA.format(serie_id), headers=self.create_header()).json()["result"]["seasons"]
 
         for season_data in seasons_data:
             if season_data["seasonOrderId"] == str(self.season):
@@ -87,7 +87,10 @@ class Namava:
         print("Getting episode id...")
         episodes_id = requests.get(EPISODE_DATA.format(id), headers=self.create_header()).json()["result"]
         print(f"Episode id: {episodes_id}")
-        return episodes_id[self.episode - 1]["mediaId"]
+        try: 
+            return episodes_id[int(self.episode) - 1]["mediaId"]
+        except:
+            return episodes_id[0]["mediaId"]
         
 
     def get_movie_qualities_urls(self, id: int) -> str:
@@ -229,7 +232,6 @@ class Encryption:
             file.write(p)
         
         print(f"Decrypted {encrypted_file_name}")
-
 
 if __name__ == "__main__":
 
