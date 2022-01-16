@@ -23,6 +23,9 @@ class SubscriptionError(Exception):
     def __init__(self, message):
         super().__init__(message)
 
+class FileNotSupported(Exception):
+    def __init__(self, message):
+        super().__init__(message)
 
 class Namava:
     def __init__(self, movie_url: str, season: int = 1, episode: int = 1) -> None:
@@ -53,9 +56,6 @@ class Namava:
             print("Subscription found")
             return True
         return False
-        
-
-
 
     def create_header(self) -> dict:
         return {
@@ -86,18 +86,19 @@ class Namava:
     def get_episode_id(self, id: int) -> int:
         print("Getting episode id...")
         episodes_id = requests.get(EPISODE_DATA.format(id), headers=self.create_header()).json()["result"]
-        print(f"Episode id: {episodes_id}")
+
         try: 
             return episodes_id[int(self.episode) - 1]["mediaId"]
         except:
             return episodes_id[0]["mediaId"]
         
-
+        print("Episode id found")
+    
     def get_movie_qualities_urls(self, id: int) -> str:
         print("Getting movie qualities urls")
         movie_detail = requests.get(MOVIE_DETAIL.format(id), headers=self.create_header()).json()
 
-        self.movie_name = self.get_latin_name(movie_detail)
+        self.movie_name = f"{self.get_latin_name(movie_detail).replace(' ', '')}-s{self.season}-e{self.episode}"
 
         movie_file = movie_detail["MediaInfoModel"]["FileFullName"]
 
@@ -141,6 +142,7 @@ class Namava:
         return url
         """
         print("Getting movie url by quality")
+
         qualities_urls = qualities_urls.split("\n")
 
         for i, url in enumerate(qualities_urls):
@@ -150,25 +152,51 @@ class Namava:
 
         raise FindEpisodeError("There is no quality or episode with these specifications.")
 
-    def get_movie_parts(self, movie_url: str) -> str:
+    def get_dubbing_languages(self, qualities_urls: str) -> list:
+        """
+        return dubbing languages
+        """
+        print("Getting dubbing languages")
+        dubbing_languages = []
+
+        for line in qualities_urls.split("\n"):
+            if "TYPE=AUDIO" in line:
+                print(line.split("LANGUAGE=")[1])
+                dubbing_languages.append(line.split('LANGUAGE="')[1].split('"')[0])
+
+        print("Done")
+
+        return dubbing_languages
+
+    def get_dubbing_sound_url_by_lang(self, qualities_urls: str, lang: str) -> str:
+        """
+        return url of dubbing sound
+        """
+        print("Getting dubbing files")
+        for line in qualities_urls.split("\n"):
+            if "TYPE=AUDIO" in line and lang in line:
+                print(f"{lang} Dubbing Language found!")
+                return line.split('URI="')[1].split('"')[0]
+
+    def get_file_parts(self, file_url: str) -> str:
         """
         return movie parts
         """
-        print("Getting movie parts")
-        request = requests.get(movie_url).text
+        print("Getting file parts")
+        request = requests.get(file_url).text
 
-        movie_parts = []
+        file_parts = []
 
         for line in request.split("\n"):
             if "https://" in line:
-                movie_parts.append(line)
+                file_parts.append(line)
 
-        encryption_url = movie_parts[0].split('URI="')[1].split('"')[0]
-        movie_parts = movie_parts[1:]
+        encryption_url = file_parts[0].split('URI="')[1].split('"')[0]
+        file_parts = file_parts[1:]
 
         print("Getting movie parts done")
 
-        return encryption_url, movie_parts
+        return encryption_url, file_parts
 
     def download_file(self, url: str, file_path: str) -> None:
         """
@@ -189,14 +217,29 @@ class Namava:
 
     def create_parts_list_file(self, movie_parts: list):
         print("Creating parts list file")
-        with open("movie_list.txt", "w") as file:
+        with open("part_list.txt", "w") as file:
             for i in range(len(movie_parts)):
                 file.write(f"file 'decrypted-{i+1}.ts'" + "\n")
         print("Done")
 
-    def combine_video_files(self) -> None:
-        print("Combining video files...")
-        command = f'cd "{pathlib.Path(__file__).parent.resolve()}" && ffmpeg -f concat -safe 0 -i movie_list.txt -c copy "{self.movie_name.replace(" ", "")}.mp4"'
+    def combine_parts(self, file_format) -> None:
+        print(f"Combining {file_format} files...")
+        command = f'cd "{pathlib.Path(__file__).parent.resolve()}" &&'
+
+        if file_format == "mp4":
+            command += f' ffmpeg -f concat -safe 0 -i part_list.txt -c copy "{self.movie_name}_video.mp4"'
+        elif file_format == "mp3":
+            command += f' ffmpeg -f concat -i part_list.txt -c copy "{self.movie_name}_audio.ts" && ffmpeg -i {self.movie_name}_audio.ts -vn {self.movie_name}_audio.wav'
+        else:
+            raise FileNotSupported("File format is not supported")
+
+        os.system(command)
+        print("Done")
+
+    def add_audio_to_video(self) -> None:
+        print("Adding audio to video...")
+
+        command = f'cd "{pathlib.Path(__file__).parent.resolve()}" && ffmpeg -i {self.movie_name}_video.mp4 -i {self.movie_name}_audio.wav -map 0:v -map 1:a -c:v copy -shortest {self.movie_name}.mp4'
         os.system(command)
         print("Done")
 
@@ -233,6 +276,7 @@ class Encryption:
         
         print(f"Decrypted {encrypted_file_name}")
 
+
 if __name__ == "__main__":
 
 
@@ -242,6 +286,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--season", help="season number", type=int, default=1)
     parser.add_argument("-e", "--episode", help="episode number(optional)", type=int)
     parser.add_argument("-q", "--quality", help="quality\nQualities: 152, 202, 270, 360, 480, 720, 1080", type=str, default="480")
+    parser.add_argument("-d", "--dubbing", type=str)
 
     args = parser.parse_args()
 
@@ -260,8 +305,9 @@ if __name__ == "__main__":
 
         namava.delete_all_files([".ts", ".txt", ".mp4", ".key"])
 
-        url = namava.get_url_by_quality(qualities_urls, args.quality)
-        encryption_url, movie_parts = namava.get_movie_parts(url)
+        movie_url = namava.get_url_by_quality(qualities_urls, args.quality)
+
+        encryption_url, movie_parts = namava.get_file_parts(movie_url)
 
         namava.download_file(encryption_url, "encryption.key")
 
@@ -274,7 +320,30 @@ if __name__ == "__main__":
         for i, part in enumerate(movie_parts):
             encryption.decrypt(part.split("/")[-1].split("?")[0])
 
-        namava.combine_video_files()
+        namava.combine_parts("mp4")
+
+        namava.delete_all_files([".ts", ".txt", ".key"])
+
+        ## Download Dubbing
+        sound_url = namava.get_dubbing_sound_url_by_lang(qualities_urls, args.dubbing)
+
+        encryption_url, sound_parts = namava.get_file_parts(sound_url)
+
+        namava.download_file(encryption_url, "encryption.key")
+
+        namava.thread_download(sound_parts, [part.split("/")[-1].split("?")[0] for part in sound_parts])
+
+        namava.create_parts_list_file(sound_parts)
+
+        encryption = Encryption("encryption.key")
+
+        for i, part in enumerate(sound_parts):
+            encryption.decrypt(part.split("/")[-1].split("?")[0])
+        
+        namava.combine_parts("mp3")
+
+        namava.add_audio_to_video()
+
 
         namava.delete_all_files([".ts", ".txt", ".key"])
 
